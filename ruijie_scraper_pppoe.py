@@ -21,6 +21,8 @@ DB_PORT = os.getenv("DB_PORT", "5432")
 DB_NAME = os.getenv("DB_NAME")
 DB_USER = os.getenv("DB_USER")
 DB_PASSWORD = os.getenv("DB_PASSWORD")
+NOCR_HOST = os.getenv("NOCR_HOST", "127.0.0.1")
+NOCR_PORT = os.getenv("NOCR_PORT", "9371")
 
 def get_db_connection():
     return psycopg2.connect(
@@ -308,6 +310,10 @@ def ambil_data_ruijie(putaran_pertama=False):
                 cur.close()
                 conn.close()
                 print(f"[INFO] Berhasil menyimpan {len(db_payloads)} data PPPoE ke Database PostgreSQL!")
+                try:
+                    requests.post(f"http://{NOCR_HOST}:{NOCR_PORT}/api/mappings/sync-notify", timeout=5)
+                except Exception as notify_err:
+                    print(f"[WARN] Gagal mengirim notifikasi sinkronisasi: {notify_err}")
             except Exception as e:
                 print(f"[ERROR] Exception saat menyimpan ke Database: {e}")
 
