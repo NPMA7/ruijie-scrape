@@ -135,9 +135,13 @@ def get_last_offline(sn, group_id):
                             jenis = "Online"
                             
                         return f"{waktu} ({jenis})"
+                return "Tidak ada riwayat"
+            else:
+                return "Error API Log"
+        else:
+            return "Error API Log"
     except Exception as e:
-        pass
-    return "Tidak ada riwayat"
+        return "Error API Log"
 
 def ambil_data_ruijie(putaran_pertama=False):
     waktu_sekarang = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -239,10 +243,11 @@ def ambil_data_ruijie(putaran_pertama=False):
                                 sys.stdout.flush()
                                 
                             last_offline_str = get_last_offline(sn, group_id)
-                            history_cache[sn] = {
-                                'lastOnline': waktu_terakhir_ms,
-                                'lastOfflineStr': last_offline_str
-                            }
+                            if last_offline_str != "Error API Log":
+                                history_cache[sn] = {
+                                    'lastOnline': waktu_terakhir_ms,
+                                    'lastOfflineStr': last_offline_str
+                                }
                             time.sleep(0.1)
                         else:
                             last_offline_str = cached_data.get('lastOfflineStr', 'Tidak ada riwayat')
