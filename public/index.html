@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ruijie Cloud Monitor & Control</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons for premium modern look -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="background-decor animate-glow-1"></div>
+  <div class="background-decor animate-glow-2"></div>
+
+  <div class="app-container">
+    <header class="app-header">
+      <div class="brand">
+        <div class="logo-icon">
+          <i data-lucide="cpu"></i>
+        </div>
+        <div class="brand-text">
+          <h1>Ruijie Control</h1>
+          <p>Cloud Monitoring & Device Controller</p>
+        </div>
+      </div>
+      <div class="status-indicator">
+        <span class="pulse-dot"></span>
+        <span class="status-text">Backend Connected</span>
+      </div>
+    </header>
+
+    <main class="app-content">
+      <!-- Controller Header Card -->
+      <section class="control-panel glass">
+        <div class="control-left">
+          <div class="tab-buttons">
+            <button class="tab-btn active" data-type="l2tp">
+              <i data-lucide="network"></i> L2TP Devices
+            </button>
+            <button class="tab-btn" data-type="pppoe">
+              <i data-lucide="cable"></i> PPPoE Devices
+            </button>
+          </div>
+        </div>
+
+        <div class="control-right">
+          <div class="sort-box">
+            <select id="sort-select" class="sort-select">
+              <option value="name-asc">Sort: A-Z (Nama)</option>
+              <option value="name-desc">Sort: Z-A (Nama)</option>
+              <option value="status-on">Sort: Status Online</option>
+              <option value="status-off">Sort: Status Offline</option>
+              <option value="clients-desc">Sort: Klien Terbanyak</option>
+            </select>
+          </div>
+          <div class="search-box">
+            <i data-lucide="search" class="search-icon"></i>
+            <input type="text" id="search-input" placeholder="Cari SN, Alias, IP...">
+          </div>
+          <button id="sync-btn" class="btn btn-primary btn-glow">
+            <i data-lucide="refresh-cw"></i> <span>Tarik Data</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Stats Overview -->
+      <section class="stats-grid">
+        <div class="stat-card glass">
+          <div class="stat-icon icon-blue">
+            <i data-lucide="layers"></i>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Total Perangkat</span>
+            <span id="stat-total" class="stat-value">-</span>
+          </div>
+        </div>
+        <div class="stat-card glass">
+          <div class="stat-icon icon-green">
+            <i data-lucide="check-circle-2"></i>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Perangkat Online</span>
+            <span id="stat-online" class="stat-value">-</span>
+          </div>
+        </div>
+        <div class="stat-card glass">
+          <div class="stat-icon icon-red">
+            <i data-lucide="alert-triangle"></i>
+          </div>
+          <div class="stat-info">
+            <span class="stat-label">Perangkat Offline</span>
+            <span id="stat-offline" class="stat-value">-</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Device List Section -->
+      <section class="device-section">
+        <div class="section-title">
+          <h2>Daftar Perangkat</h2>
+          <span class="badge" id="device-count">0 devices</span>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading-spinner" class="loading-state hidden">
+          <div class="spinner"></div>
+          <p>Menarik data terbaru dari Ruijie Cloud...</p>
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="empty-state hidden">
+          <i data-lucide="inbox"></i>
+          <p>Tidak ada perangkat ditemukan.</p>
+        </div>
+
+        <!-- Device Grid -->
+        <div id="device-grid" class="device-grid">
+          <!-- Dynamically populated via app.js -->
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Notification System -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Reboot Confirmation Modal -->
+  <div id="reboot-modal" class="modal-overlay hidden">
+    <div class="modal-content glass">
+      <div class="modal-header">
+        <div class="modal-title-icon">
+          <i data-lucide="alert-octagon"></i>
+        </div>
+        <h3>Konfirmasi Reboot</h3>
+      </div>
+      <div class="modal-body">
+        <p>Apakah Anda yakin ingin melakukan reboot pada perangkat berikut?</p>
+        <div class="modal-device-detail">
+          <div class="detail-row"><span>Nama Alias:</span><strong id="modal-alias">-</strong></div>
+          <div class="detail-row"><span>Serial Number:</span><strong id="modal-sn">-</strong></div>
+          <div class="detail-row"><span>IP Address:</span><strong id="modal-ip">-</strong></div>
+        </div>
+        <p class="modal-warning-text">Aksi ini akan memutuskan koneksi klien yang terhubung ke Access Point ini sementara waktu.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="modal-cancel-btn" class="btn btn-secondary">Batal</button>
+        <button id="modal-confirm-btn" class="btn btn-danger btn-glow">
+          <i data-lucide="power"></i> Ya, Reboot Sekarang
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Rename Confirmation Modal -->
+  <div id="rename-modal" class="modal-overlay hidden">
+    <div class="modal-content glass">
+      <div class="modal-header">
+        <div class="modal-title-icon icon-blue">
+          <i data-lucide="edit-3"></i>
+        </div>
+        <h3>Ganti Nama Alias</h3>
+      </div>
+      <div class="modal-body">
+        <p>Masukkan nama alias baru untuk perangkat berikut:</p>
+        <div class="modal-device-detail">
+          <div class="detail-row"><span>Nama Alias Saat Ini:</span><strong id="rename-modal-current-alias">-</strong></div>
+          <div class="detail-row"><span>Serial Number:</span><strong id="rename-modal-sn">-</strong></div>
+        </div>
+        <div class="form-group" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem;">
+          <label for="rename-input" style="font-size: 0.8rem; color: var(--text-muted);">Nama Alias Baru</label>
+          <input type="text" id="rename-input" class="modal-input" placeholder="Contoh: Cimaung_Cikalong">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="rename-modal-cancel-btn" class="btn btn-secondary">Batal</button>
+        <button id="rename-modal-confirm-btn" class="btn btn-primary btn-glow">
+          <i data-lucide="save"></i> Simpan Perubahan
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- eWeb Connection Modal -->
+  <div id="eweb-modal" class="modal-overlay hidden">
+    <div class="modal-content glass">
+      <div class="modal-header">
+        <div class="modal-title-icon icon-blue">
+          <i data-lucide="globe"></i>
+        </div>
+        <h3>Koneksi Remote eWeb</h3>
+      </div>
+      <div class="modal-body">
+        <p id="eweb-modal-status">Mempersiapkan terowongan VPN tunnel aman...</p>
+        <div class="modal-device-detail">
+          <div class="detail-row"><span>Nama Alias:</span><strong id="eweb-modal-alias">-</strong></div>
+          <div class="detail-row"><span>Serial Number:</span><strong id="eweb-modal-sn">-</strong></div>
+        </div>
+        <div id="eweb-modal-loading" class="loading-state" style="padding: 1.5rem 0;">
+          <div class="spinner" style="width: 32px; height: 32px; border-width: 3px;"></div>
+        </div>
+        <div id="eweb-modal-links" class="hidden" style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+          <p style="font-size: 0.8rem; color: var(--text-muted);">Sistem eWeb berhasil terhubung. Pilih metode akses:</p>
+          <a id="eweb-link-domain" href="#" target="_blank" class="btn btn-primary btn-glow eweb-link-btn hidden" style="text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;">
+            <i data-lucide="globe"></i> Open with Domain (Recommended)
+          </a>
+          <a id="eweb-link-ip" href="#" target="_blank" class="btn btn-secondary eweb-link-btn hidden" style="text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;">
+            <i data-lucide="server"></i> Open with IP Address
+          </a>
+          <a id="eweb-link-use" href="#" target="_blank" class="btn btn-secondary eweb-link-btn hidden" style="text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;">
+            <i data-lucide="link"></i> Open with useUrl
+          </a>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="eweb-modal-close-btn" class="btn btn-secondary">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+
+
+  <script src="app.js"></script>
+</body>
+</html>

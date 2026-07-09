@@ -1,19 +1,14 @@
+# Node Modules
+node_modules/
+
+# Temp Downloads
+temp_downloads/
+
 # Environment Variables
 .env
 
-# Python Cache
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Virtual Environments
-venv/
-.venv/
-env/
-
 # Ruijie Session Cookies
-ruijie_cookies.json
-ruijie_cookies_pppoe.json
+data/cookies/*.json
 
 # IDEs & OS Files
 .vscode/

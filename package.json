@@ -1,0 +1,18 @@
+{
+  "name": "ruijie-scrape-backend",
+  "version": "1.0.0",
+  "description": "Backend for Ruijie Scraping & Device Actions",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "scraper": "node src/scraper.js",
+    "start:debug": "cross-env DEBUG=true node src/server.js",
+    "scraper:debug": "node src/scraper.js --debug"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "dotenv": "^16.4.5",
+    "pg": "^8.12.0",
+    "selenium-webdriver": "^4.22.0"
+  }
+}
