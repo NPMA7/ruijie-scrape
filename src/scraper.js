@@ -199,51 +199,43 @@ async function get_last_offline(sn, group_id, username, cookieStr) {
 
     if (res.status === 200) {
       const data = await res.json();
-      if (data && data.rows) {
+      if (data && data.rows && data.rows.length > 0) {
         const logs = data.rows;
-        for (const log of logs) {
-          const content = (
-            String(log.logDetail || "") +
-            " " +
-            String(log.content || "")
-          ).toLowerCase();
-          const log_type = String(log.logType || "").toLowerCase();
+        // Ambil log terbaru (index 0, urutan desc dari API)
+        const log = logs[0];
+        const content = (
+          String(log.logDetail || "") +
+          " " +
+          String(log.content || "")
+        ).toLowerCase();
+        const log_type = String(log.logType || "").toLowerCase();
 
-          if (
-            content.includes("offline") ||
-            content.includes("putus") ||
-            content.includes("disconnect") ||
-            log_type.includes("offline") ||
-            log_type.includes("reboot") ||
-            content.includes("restart")
-          ) {
-            let waktu =
-              log.operateTime_macc_groupTimezone ||
-              log.operateTime ||
-              log.createTimeStr ||
-              log.updateTimeStr ||
-              log.timeStr;
-            if (typeof waktu === "number") {
-              const date = new Date(waktu + 7 * 3600 * 1000);
-              waktu = date.toISOString().replace("T", " ").substring(0, 19);
-            }
-
-            let jenis = "Offline";
-            if (log_type.includes("reboot") || content.includes("restart")) {
-              jenis = "Reboot";
-            } else if (
-              content.includes("online") ||
-              content.includes("connect") ||
-              content.includes("terhubung")
-            ) {
-              jenis = "Online";
-            }
-
-            return `${waktu} (${jenis})`;
-          }
+        let waktu =
+          log.operateTime_macc_groupTimezone ||
+          log.operateTime ||
+          log.createTimeStr ||
+          log.updateTimeStr ||
+          log.timeStr;
+        if (typeof waktu === "number") {
+          const date = new Date(waktu + 7 * 3600 * 1000);
+          waktu = date.toISOString().replace("T", " ").substring(0, 19);
         }
-        return "Tidak ada riwayat";
+
+        let jenis = "Log";
+        if (log_type.includes("reboot") || content.includes("restart")) {
+          jenis = "Reboot";
+        } else if (content.includes("online") || content.includes("terhubung") || content.includes("connect")) {
+          jenis = "Online";
+        } else if (content.includes("offline") || content.includes("putus") || content.includes("disconnect")) {
+          jenis = "Offline";
+        } else if (log_type) {
+          // Gunakan logType sebagai label fallback
+          jenis = String(log.logType || "Log");
+        }
+
+        return `${waktu} (${jenis})`;
       }
+      return "Tidak ada riwayat";
     }
     return "Error API Log";
   } catch (err) {
@@ -416,8 +408,10 @@ async function ambil_data_ruijie(connType, putaran_pertama = false, existing_cac
           : "OFF";
       } else {
         const cached_data = history_cache[sn] || {};
-        // Hanya ambil log offline jika putaran pertama DAN data lastOnline berubah/tidak cocok
-        if (putaran_pertama && cached_data.lastOnline !== waktu_str) {
+        // Re-fetch log jika:
+        // 1. lastOnline berubah (device baru recover dari offline), atau
+        // 2. Ini putaran pertama (startup) → pastikan cache tidak stale
+        if (cached_data.lastOnline !== waktu_str || putaran_pertama) {
           process.stdout.write(
             `\rMengunduh log untuk ${alias.substring(0, 15)}...       `,
           );
@@ -523,11 +517,19 @@ async function ambil_data_ruijie(connType, putaran_pertama = false, existing_cac
         );
       } else {
         try {
+          // Deduplicate by SN — PostgreSQL tidak bisa upsert row yang sama 2x dalam satu batch
+          const seen_sn = new Set();
+          const unique_payloads = db_payloads.filter(p => {
+            if (seen_sn.has(p.sn)) return false;
+            seen_sn.add(p.sn);
+            return true;
+          });
+
           const values = [];
           const placeholders = [];
           let counter = 1;
 
-          db_payloads.forEach((p) => {
+          unique_payloads.forEach((p) => {
             values.push(
               p.sn,
               p.mac_address,
