@@ -237,7 +237,18 @@
           <div>
             <div class="detail-row"><span>Nama Site:</span><strong id="traffic-modal-sitename">-</strong></div>
             <div class="detail-row"><span>Group ID:</span><strong id="traffic-modal-groupid">-</strong></div>
-            <div class="detail-row"><span>Klien:</span><strong id="traffic-modal-clients">-</strong></div>
+            <div class="detail-row">
+              <span>Klien Aktif (Realtime):</span>
+              <strong id="traffic-modal-clients">-</strong>
+            </div>
+            <div class="detail-row" id="usertrand-row" style="display:none;">
+              <span>User Trend (Hari Ini):</span>
+              <strong id="traffic-modal-usertrand" style="display:inline-flex;align-items:center;gap:0.4rem;">-</strong>
+            </div>
+            <div class="detail-row" id="totaluser-24h-row" style="display:none;">
+              <span id="totaluser-24h-label">Total Klien Terdeteksi:</span>
+              <strong id="traffic-modal-totaluser-24h" style="color:var(--text-primary);">-</strong>
+            </div>
             <div class="detail-row"><span>Traffic:</span><strong id="traffic-modal-total-bytes">-</strong></div>
           </div>
           <!-- Modal Date Range Selectors -->
@@ -260,8 +271,19 @@
         </div>
         
         <!-- Live Traffic Flow Chart Container -->
-        <div class="chart-container" style="position: relative; height: 350px; width: 100%; margin-top: 1rem;">
+        <div class="chart-container" style="position: relative; height: 300px; width: 100%; margin-top: 1rem;">
           <canvas id="traffic-modal-chart"></canvas>
+        </div>
+
+        <!-- User Trend Chart (tampil dinamis di semua range) -->
+        <div id="usertrand-chart-wrapper" style="display:none; margin-top: 1.5rem;">
+          <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.75rem;">
+            <span style="width:10px;height:10px;border-radius:50%;background:#f59e0b;display:inline-block;"></span>
+            <span style="font-size:0.8rem;color:var(--text-muted);font-weight:500;" id="usertrand-chart-title">Wi-Fi Client Trend</span>
+          </div>
+          <div style="position: relative; height: 160px; width: 100%;">
+            <canvas id="usertrand-chart"></canvas>
+          </div>
         </div>
       </div>
       <div class="modal-footer">

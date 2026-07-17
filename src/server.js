@@ -794,6 +794,18 @@ app.post('/api/traffic', async (req, res) => {
     return getGMT7Date(1);
   };
 
+  const getWaktuSekarangUTC = () => {
+    const d = new Date();
+    // Kembalikan format string "YYYY-MM-DD HH:mm:ss" dalam UTC
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const min = String(d.getUTCMinutes()).padStart(2, '0');
+    const ss = String(d.getUTCSeconds()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+  };
+
   if (rangeType === 'today') {
     startStr = getGMT7Date();
     endStr = getGMT7Date();
@@ -948,6 +960,102 @@ app.post('/api/traffic', async (req, res) => {
       inTrafficBytes = Math.round(totalTrafficBytes * rxRatio);
       outTrafficBytes = totalTrafficBytes - inTrafficBytes;
 
+      // Tambahkan data userTrand sebagai informasi tambahan untuk semua rangeType
+      // (clients dari exportBuildingFlowBySn sudah realtime aktif — tidak diganti)
+      let userTrandClients = null;
+      let userTrandLastTime = null;
+      let userTrandTotalSum = null;
+      let userTrandPoints = [];
+      
+      try {
+        const uTrandStartDate = rangeType === 'today' ? getGMT7DateYesterday() : startStr;
+        const uTrandEndDate = rangeType === 'today' ? getGMT7Date() : endStr;
+        
+        const userTrandPayload = querystring.stringify({
+          groupId: groupId,
+          queryType: rangeType === 'today' ? 'today' : 'period',
+          startDateStr: uTrandStartDate,
+          endDateStr: uTrandEndDate,
+          sceneEnum: 'COMMON',
+          macc_groupTimezoneStr: 'GMT+7:00',
+          currentUsername: cfg.username
+        });
+        const userTrandRes = await makeRuijiePost('/admin3/userTrand', cookieStr, userTrandPayload);
+        if (!userTrandRes.body.trim().startsWith('<') && userTrandRes.body !== 'refresh') {
+          const userTrandData = JSON.parse(userTrandRes.body);
+          if (userTrandData && userTrandData.list && userTrandData.list.length > 0) {
+            const points = userTrandData.list;
+
+            if (rangeType === 'today') {
+              // Untuk range 'today', lakukan penyesuaian jam (-1 jam) & saring data masa depan
+              const subtractOneHour = (timeStr) => {
+                if (!timeStr) return null;
+                try {
+                  const date = new Date(timeStr.replace(' ', 'T') + 'Z');
+                  if (!isNaN(date.getTime())) {
+                    const adjustedDate = new Date(date.getTime() - 3600000);
+                    const yyyy = adjustedDate.getUTCFullYear();
+                    const mm = String(adjustedDate.getUTCMonth() + 1).padStart(2, '0');
+                    const dd = String(adjustedDate.getUTCDate()).padStart(2, '0');
+                    const hh = String(adjustedDate.getUTCHours()).padStart(2, '0');
+                    const min = String(adjustedDate.getUTCMinutes()).padStart(2, '0');
+                    const ss = String(adjustedDate.getUTCSeconds()).padStart(2, '0');
+                    return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+                  }
+                } catch (e) {}
+                return timeStr;
+              };
+
+              const nowLocal = new Date();
+              const yyyy = nowLocal.getFullYear();
+              const mm = String(nowLocal.getMonth() + 1).padStart(2, '0');
+              const dd = String(nowLocal.getDate()).padStart(2, '0');
+              const hh = String(nowLocal.getHours()).padStart(2, '0');
+              const min = String(nowLocal.getMinutes()).padStart(2, '0');
+              const ss = String(nowLocal.getSeconds()).padStart(2, '0');
+              const nowStr = `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+
+              const adjustedPoints = points.map(p => {
+                const adjustedTime = subtractOneHour(p.time);
+                return {
+                  time: adjustedTime,
+                  activeTotal: parseInt(p.activeTotal || 0) || 0,
+                  total: parseInt(p.total || 0) || 0
+                };
+              });
+
+              const pointsToUse = adjustedPoints.filter(p => {
+                if (!p.time) return true;
+                return p.time.localeCompare(nowStr) <= 0;
+              });
+
+              const lastPoint = pointsToUse.length > 0 ? pointsToUse[pointsToUse.length - 1] : adjustedPoints[adjustedPoints.length - 1];
+              userTrandClients = lastPoint.activeTotal > 0 ? lastPoint.activeTotal : lastPoint.total;
+              userTrandLastTime = lastPoint.time;
+              userTrandPoints = pointsToUse;
+              userTrandTotalSum = Math.max(...pointsToUse.map(p => p.total), 0);
+            } else {
+              // Untuk range historis (7days, 30days, custom), gunakan data time asli apa adanya
+              userTrandPoints = points.map(p => ({
+                time: p.timeStamp_macc_groupTimezone || p.time || p.timeStamp,
+                activeTotal: parseInt(p.activeTotal || p.userNum || 0) || 0,
+                total: parseInt(p.total || p.userNum || 0) || 0
+              }));
+              
+              const lastPoint = userTrandPoints[userTrandPoints.length - 1];
+              userTrandClients = lastPoint.activeTotal > 0 ? lastPoint.activeTotal : lastPoint.total;
+              userTrandLastTime = lastPoint.time;
+              userTrandTotalSum = Math.max(...userTrandPoints.map(p => p.total), 0);
+            }
+          } else if (userTrandData && typeof userTrandData.totalUser === 'number') {
+            userTrandClients = userTrandData.totalUser;
+            userTrandTotalSum = userTrandData.totalUser;
+          }
+        }
+      } catch (e) {
+        console.warn(`[WARN] Gagal ambil userTrand untuk groupId ${groupId}:`, e.message);
+      }
+
       let siteName = groupNameMap[groupId] || `Site ${groupId}`;
       if (targetDevice && targetDevice.alias) {
         siteName = `${siteName} - ${targetDevice.alias}`;
@@ -955,17 +1063,24 @@ app.post('/api/traffic', async (req, res) => {
         siteName = deviceFlowList[0].alias;
       }
       
-      return {
-        sitesTraffic: [{
-          groupId: groupId,
-          siteName: siteName,
-          totalTrafficBytes,
-          inTrafficBytes,
-          outTrafficBytes,
-          clients: totalClients,
-          trendPoints: trendPoints
-        }]
+      const resultItem = {
+        groupId: groupId,
+        siteName: siteName,
+        totalTrafficBytes,
+        inTrafficBytes,
+        outTrafficBytes,
+        clients: totalClients,        // realtime aktif dari exportBuildingFlowBySn
+        trendPoints: trendPoints
       };
+      
+      // Tambahkan properti userTrand jika datanya sukses diambil
+      if (userTrandClients !== null) {
+        resultItem.userTrandClients  = userTrandClients;
+        resultItem.userTrandLastTime = userTrandLastTime;
+        resultItem.userTrandPoints   = userTrandPoints;
+        resultItem.userTrandTotal24h = userTrandTotalSum;
+      }
+      return { sitesTraffic: [resultItem] };
     }
 
     // CASE 2: Querying all sites (Dashboard View)
@@ -1061,17 +1176,65 @@ app.post('/api/traffic', async (req, res) => {
       }
       siteAggregation[bId].totalTrafficBytes += parseInt(ap.wifiUpDown) || 0;
       siteAggregation[bId].clients += parseInt(ap.total) || 0;
-    });
+    });    // Jika hari ini: panggil userTrand per-site sebagai data tambahan
+    // clients dari exportBuildingFlowBySn sudah realtime — userTrand hanya sebagai field ekstra
+    const userTrandBySite = {};
+    if (rangeType === 'today') {
+      const siteIds = Object.keys(siteAggregation);
+      for (const bId of siteIds) {
+        try {
+          const userTrandPayload = querystring.stringify({
+            groupId: bId,
+            queryType: 'today',
+            startDateStr: getGMT7DateYesterday(),
+            endDateStr: getGMT7Date(),
+            sceneEnum: 'COMMON',
+            macc_groupTimezoneStr: 'GMT+7:00',
+            currentUsername: cfg.username
+          });
+          const userTrandRes = await makeRuijiePost('/admin3/userTrand', cookieStr, userTrandPayload);
+          if (!userTrandRes.body.trim().startsWith('<') && userTrandRes.body !== 'refresh') {
+            const userTrandData = JSON.parse(userTrandRes.body);
+            if (userTrandData && userTrandData.list && userTrandData.list.length > 0) {
+              const points = userTrandData.list;
+              // Gunakan titik tren terakhir = kondisi klien paling terbaru
+              const lastPoint = points[points.length - 1];
+              const activeNow = parseInt(lastPoint.activeTotal || 0) || 0;
+              const totalNow  = parseInt(lastPoint.total || 0) || 0;
+              const clientsNow = activeNow > 0 ? activeNow : totalNow;
+              if (clientsNow > 0) userTrandBySite[bId] = {
+                clients: clientsNow,
+                lastTime: lastPoint.timeStamp_macc_groupTimezone || lastPoint.time || null
+              };
+            } else if (userTrandData && typeof userTrandData.totalUser === 'number' && userTrandData.totalUser > 0) {
+              userTrandBySite[bId] = { clients: userTrandData.totalUser, lastTime: null };
+            }
+          }
+          // Jeda kecil agar tidak rate-limit
+          await new Promise(r => setTimeout(r, 80));
+        } catch (e) {
+          console.warn(`[WARN] Gagal ambil userTrand untuk site ${bId}:`, e.message);
+        }
+      }
+    }
 
     const sitesTraffic = Object.values(siteAggregation).map(site => {
       const inTrafficBytes = Math.round(site.totalTrafficBytes * rxRatio);
       const outTrafficBytes = site.totalTrafficBytes - inTrafficBytes;
-      return {
+      const utData = userTrandBySite[site.groupId];
+      const result = {
         ...site,
         inTrafficBytes,
         outTrafficBytes,
+        clients: site.clients,   // realtime aktif dari exportBuildingFlowBySn, tidak diganti
         trendPoints: []
       };
+      // Tambahkan field userTrand hanya jika hari ini & data tersedia
+      if (rangeType === 'today' && utData) {
+        result.userTrandClients  = utData.clients;   // klien aktif dari userTrand
+        result.userTrandLastTime = utData.lastTime;  // waktu snapshot terakhir
+      }
+      return result;
     });
 
     return { sitesTraffic };

@@ -32,6 +32,7 @@ if (!cfg) {
 
 const LOGIN_URL = "https://cloud-as.ruijienetworks.com/admin3/login";
 
+
 async function loginAndGetCookies() {
   console.log(
     `Membuka browser di belakang layar (Headless Chrome) [${cfg.name}]...`,
@@ -91,20 +92,31 @@ async function loginAndGetCookies() {
     const loginBtn = await driver.findElement(By.id("J_userLogin_btn"));
     await driver.executeScript("arguments[0].click();", loginBtn);
 
-    console.log("Menunggu proses login berhasil (loading dashboard)...");
-    await driver.sleep(8000);
-
-    // Menerima banner cookie jika muncul
+    console.log("Menunggu redirect ke dashboard...");
+    // Tunggu sampai URL berubah dari halaman login ke dashboard (max 30 detik)
     try {
-      const cookieBtn = await driver.findElement(By.id("saveSessionOk"));
+      await driver.wait(async () => {
+        const url = await driver.getCurrentUrl();
+        return !url.includes('/admin3/login') && url.includes('admin3');
+      }, 30000, "Timeout: Dashboard tidak dimuat dalam 30 detik");
+      console.log("Dashboard berhasil dimuat!");
+    } catch (e) {
+      const currentUrl = await driver.getCurrentUrl();
+      console.warn("Peringatan: URL tidak redirect ke dashboard. URL saat ini:", currentUrl);
+    }
+
+    // Terima banner cookie jika muncul (non-blocking, timeout 3 detik)
+    try {
+      const cookieBtn = await driver.wait(
+        until.elementLocated(By.id("saveSessionOk")),
+        3000
+      );
       await driver.executeScript("arguments[0].click();", cookieBtn);
       console.log("Banner cookie di-Accept.");
-      await driver.sleep(2000);
+      await driver.sleep(500);
     } catch (e) {
       // Banner tidak muncul, abaikan
     }
-
-    await driver.sleep(10000);
 
     const cookies = await driver.manage().getCookies();
     const cookieDict = {};
@@ -112,7 +124,8 @@ async function loginAndGetCookies() {
       cookieDict[cookie.name] = cookie.value;
     }
 
-    if (cookieDict["JSESSIONID"] || cookieDict["SERVERID"]) {
+    if (cookieDict["JSESSIONID"] || cookieDict["SERVERID"] || cookieDict["SESSION"]) {
+
       fs.writeFileSync(cfg.cookieFile, JSON.stringify(cookieDict, null, 4));
       console.log(`BERHASIL! Cookie baru telah disimpan di ${cfg.cookieFile}.`);
       console.log("Cookie tersimpan:", cookieDict);

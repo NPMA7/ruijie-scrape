@@ -8,6 +8,7 @@ let deviceToReboot = null;
 let currentTrafficType = 'l2tp';
 let currentTrafficRange = 'today';
 let trafficChartInstance = null;
+let userTrandChartInstance = null;
 let trafficChartAbortController = null;
 let sitesTrafficData = [];
 let modalActiveDeviceSn = null;
@@ -677,6 +678,17 @@ function initializeTrafficModalControls() {
         trafficChartInstance.destroy();
         trafficChartInstance = null;
       }
+      if (userTrandChartInstance) {
+        userTrandChartInstance.destroy();
+        userTrandChartInstance = null;
+      }
+      // Sembunyikan user trend chart wrapper saat modal ditutup
+      const wrapper = document.getElementById('usertrand-chart-wrapper');
+      const row = document.getElementById('usertrand-row');
+      const totalRow = document.getElementById('totaluser-24h-row');
+      if (wrapper) wrapper.style.display = 'none';
+      if (row) row.style.display = 'none';
+      if (totalRow) totalRow.style.display = 'none';
     });
   }
 }
@@ -763,6 +775,40 @@ async function loadModalTrafficChart() {
       if (modalTotalBytes) {
         modalTotalBytes.textContent = formatBytes(siteData.totalTrafficBytes || 0);
       }
+
+      // Tampilkan data userTrand jika tersedia (hanya saat rangeType = today)
+      const usertrandRow = document.getElementById('usertrand-row');
+      const usertrandEl = document.getElementById('traffic-modal-usertrand');
+      const totaluserRow = document.getElementById('totaluser-24h-row');
+      const totaluserEl = document.getElementById('traffic-modal-totaluser-24h');
+
+      if (siteData.userTrandClients !== undefined && siteData.userTrandClients !== null && siteData.userTrandClients > 0) {
+        const snapshotTime = siteData.userTrandLastTime && String(siteData.userTrandLastTime).length >= 8
+          ? `<span style="font-size:0.7rem;font-weight:400;color:#9ca3af;margin-left:0.3rem;">@ ${String(siteData.userTrandLastTime).length >= 16 ? String(siteData.userTrandLastTime).substring(5, 16) : String(siteData.userTrandLastTime)}</span>`
+          : '';
+        if (usertrandEl) {
+          usertrandEl.innerHTML = `<span style="background:rgba(245,158,11,0.15);color:#f59e0b;padding:0.15rem 0.5rem;border-radius:999px;font-size:0.85rem;">${siteData.userTrandClients} user</span>${snapshotTime}`;
+        }
+        if (usertrandRow) usertrandRow.style.display = '';
+      } else {
+        if (usertrandRow) usertrandRow.style.display = 'none';
+      }
+
+      // Tampilkan Total Klien Terdeteksi (MAX total) - independen dari userTrandClients
+      const totaluserLabel = document.getElementById('totaluser-24h-label');
+      if (totaluserEl && siteData.userTrandTotal24h !== undefined && siteData.userTrandTotal24h !== null && siteData.userTrandTotal24h > 0) {
+        totaluserEl.textContent = `${siteData.userTrandTotal24h} user`;
+        if (totaluserRow) totaluserRow.style.display = '';
+        // Label dinamis sesuai range
+        if (totaluserLabel) {
+          if (modalTrafficRange === 'today') totaluserLabel.textContent = 'Peak Klien (24 Jam):';
+          else if (modalTrafficRange === '7days') totaluserLabel.textContent = 'Peak Klien (7 Hari):';
+          else if (modalTrafficRange === '30days') totaluserLabel.textContent = 'Peak Klien (30 Hari):';
+          else totaluserLabel.textContent = 'Peak Klien (Custom):';
+        }
+      } else {
+        if (totaluserRow) totaluserRow.style.display = 'none';
+      }
     }
 
     if (!siteData || !siteData.trendPoints || siteData.trendPoints.length === 0) {
@@ -773,6 +819,9 @@ async function loadModalTrafficChart() {
         trafficChartInstance.destroy();
         trafficChartInstance = null;
       }
+
+      // Render user trend chart jika ada data userTrand meski traffic kosong
+      renderUserTrandChart(siteData, modalTrafficRange);
       return;
     }
 
@@ -792,7 +841,12 @@ async function loadModalTrafficChart() {
       const date = new Date(formattedTime);
       if (!isNaN(date.getTime())) {
         if (modalTrafficRange === 'today') {
-          return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          // Format menjadi "MM-DD HH:mm" (misal: "07-17 16:50")
+          const mm = String(date.getMonth() + 1).padStart(2, '0');
+          const dd = String(date.getDate()).padStart(2, '0');
+          const hh = String(date.getHours()).padStart(2, '0');
+          const min = String(date.getMinutes()).padStart(2, '0');
+          return `${mm}-${dd} ${hh}:${min}`;
         }
         return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
       }
@@ -870,6 +924,9 @@ async function loadModalTrafficChart() {
       }
     });
 
+    // Render user trend chart
+    renderUserTrandChart(siteData, modalTrafficRange);
+
   } catch (err) {
     if (err.name === 'AbortError') {
       return;
@@ -877,6 +934,143 @@ async function loadModalTrafficChart() {
     console.error("Gagal menggambar chart:", err);
     showToast(`Gagal mengambil data trend: ${err.message}`, 'error');
   }
+}
+
+// Render atau destroy chart User Trend (activeTotal per 10 menit)
+function renderUserTrandChart(siteData, rangeType) {
+  const wrapper = document.getElementById('usertrand-chart-wrapper');
+  const canvas  = document.getElementById('usertrand-chart');
+  const titleEl = document.getElementById('usertrand-chart-title');
+  if (!wrapper || !canvas) return;
+
+  // Tampilkan chart hanya jika kita punya data points
+  const hasPoints = siteData && siteData.userTrandPoints && siteData.userTrandPoints.length > 0;
+  if (!siteData || (!hasPoints && siteData.userTrandClients === null)) {
+    wrapper.style.display = 'none';
+    if (userTrandChartInstance) { userTrandChartInstance.destroy(); userTrandChartInstance = null; }
+    return;
+  }
+
+  // Dinamiskan judul grafik tren berdasarkan range
+  if (titleEl) {
+    if (rangeType === 'today') {
+      titleEl.textContent = 'Wi-Fi Client Trend (Hari Ini)';
+    } else if (rangeType === '7days') {
+      titleEl.textContent = 'Wi-Fi Client Trend (7 Hari Terakhir)';
+    } else if (rangeType === '30days') {
+      titleEl.textContent = 'Wi-Fi Client Trend (30 Hari Terakhir)';
+    } else {
+      titleEl.textContent = 'Wi-Fi Client Trend (Custom Range)';
+    }
+  }
+
+  wrapper.style.display = 'block';
+
+  let labels = [];
+  let datasetActive = [];
+  let datasetTotal = [];
+
+  // Fungsi pembantu untuk memformat label waktu / tanggal di grafik
+  const formatUserTrandLabel = (timeStr) => {
+    if (!timeStr) return 'Terkini';
+    const sTime = String(timeStr);
+    
+    // Format 1: "YYYY-MM-DD HH:mm:ss" (Today per 10 menit) -> Ambil "MM-DD HH:mm"
+    if (sTime.length >= 16 && sTime.includes('-')) {
+      return sTime.substring(5, 16);
+    }
+    
+    // Format 2: "YYYYMMDD" (Historis 7d, 30d, custom) -> Ubah menjadi "DD MMM" (misal: "10 Jul")
+    if (sTime.length === 8 && !isNaN(Number(sTime))) {
+      const yyyy = sTime.substring(0, 4);
+      const mm = sTime.substring(4, 6);
+      const dd = sTime.substring(6, 8);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+      const monthIndex = parseInt(mm, 10) - 1;
+      const monthName = months[monthIndex] || mm;
+      return `${parseInt(dd, 10)} ${monthName}`;
+    }
+    
+    return timeStr;
+  };
+
+  // Jika ada data points lengkap dari server, kita gambar grafiknya
+  if (siteData.userTrandPoints && siteData.userTrandPoints.length > 0) {
+    // Urutkan secara kronologis berdasarkan waktu string
+    const sortedPoints = [...siteData.userTrandPoints].sort((a, b) => {
+      return String(a.time).localeCompare(String(b.time));
+    });
+
+    labels = sortedPoints.map(p => formatUserTrandLabel(p.time));
+    datasetActive = sortedPoints.map(p => p.activeTotal);
+    datasetTotal = sortedPoints.map(p => p.total);
+  } else {
+    // Fallback jika hanya ada single point
+    const lastVal = siteData.userTrandClients || 0;
+    const lastTime = siteData.userTrandLastTime || '';
+    labels = [formatUserTrandLabel(lastTime)];
+    datasetActive = [lastVal];
+    datasetTotal = [lastVal];
+  }
+
+  if (userTrandChartInstance) {
+    userTrandChartInstance.destroy();
+    userTrandChartInstance = null;
+  }
+
+  const ctx = canvas.getContext('2d');
+  userTrandChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'Klien Aktif',
+          data: datasetActive,
+          borderColor: '#f59e0b',
+          backgroundColor: 'rgba(245, 158, 11, 0.1)',
+          fill: true,
+          tension: 0.3,
+          borderWidth: 2
+        },
+        {
+          label: 'Total Terdeteksi',
+          data: datasetTotal,
+          borderColor: '#9ca3af',
+          backgroundColor: 'rgba(156, 163, 175, 0.05)',
+          fill: false,
+          tension: 0.3,
+          borderWidth: 1,
+          borderDash: [4, 4]
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { 
+          labels: { color: '#f3f4f6', font: { size: 10 } } 
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} user`
+          }
+        }
+      },
+      scales: {
+        x: { 
+          grid: { color: 'rgba(255,255,255,0.03)' }, 
+          ticks: { color: '#9ca3af', font: { size: 9 } } 
+        },
+        y: {
+          min: 0,
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { color: '#9ca3af', stepSize: 1, font: { size: 9 } }
+        }
+      }
+    }
+  });
 }
 
 // Utility to format bytes into human readable sizes

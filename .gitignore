@@ -18,3 +18,5 @@ data/cookies/*.json
 
 # Log Files
 *.log
+
+scratch/

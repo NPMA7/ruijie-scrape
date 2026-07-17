@@ -6,13 +6,22 @@ Node.js application for logging in, scraping L2TP and PPPoE monitor data from Ru
 
 - Node.js (v18+) & npm
 - PostgreSQL database
-- Google Chrome / Chromium (terinstal pada sistem beserta Chromium-Driver untuk automasi headless browser).
+- Google Chrome / Chromium beserta ChromeDriver (digunakan oleh Selenium untuk proses login otomatis).
 
   **Untuk sistem Linux (Debian/Ubuntu):**
-  Pastikan Chromium dan Chromium-Driver terinstal beserta seluruh pustaka (libraries) pendukungnya dengan perintah berikut:
+  Pastikan Chromium dan Chromium-Driver terinstal beserta seluruh pustaka (libraries) pendukungnya:
   ```bash
   sudo apt update && sudo apt install -y chromium chromium-driver
   ```
+
+## Mekanisme Autentikasi Cookies
+
+Aplikasi ini menggunakan **Selenium (Headless Chrome)** untuk melakukan login otomatis ke Ruijie Cloud SSO dan mengambil session cookies. Pendekatan ini dipilih karena:
+- Ruijie Cloud menggunakan AWS CloudFront dengan bot detection berbasis **TLS fingerprinting**
+- Password dienkripsi dengan RSA di sisi browser (kunci publik di-hardcode dalam JS frontend)
+- Session ticket SSO hanya dikeluarkan untuk browser asli (bukan HTTP client biasa)
+
+Selenium dijalankan **hanya saat cookies kedaluwarsa**, bukan setiap request. Proses login berlangsung dalam **3–8 detik** (menunggu redirect dashboard secara dinamis).
 
 ## Instalasi
 
@@ -200,11 +209,27 @@ Endpoint untuk memuat data total trafik (Uplink/Downlink) serta daftar titik gra
             "out": 295069611,
             "total": 347140719
           }
-        ]
+        ],
+        "userTrandClients": 5,
+        "userTrandLastTime": "2026-07-17 16:50:00",
+        "userTrandPoints": [
+          {
+            "time": "2026-07-17 16:40:00",
+            "activeTotal": 5,
+            "total": 5
+          },
+          {
+            "time": "2026-07-17 16:50:00",
+            "activeTotal": 5,
+            "total": 5
+          }
+        ],
+        "userTrandTotal24h": 9
       }
     ]
   }
   ```
+  *(Catatan: Properti `userTrandClients`, `userTrandLastTime`, `userTrandPoints`, dan `userTrandTotal24h` secara otomatis ditambahkan ke respons untuk memfasilitasi penggambaran chart trend client Wi-Fi. Nilai `userTrandTotal24h` merepresentasikan Peak Klien (jumlah maksimum klien yang terdeteksi secara bersamaan) sepanjang periode data).*
 
 ## Mekanisme Sinkronisasi Real-Time
 
