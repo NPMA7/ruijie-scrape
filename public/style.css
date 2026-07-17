@@ -811,3 +811,163 @@ body {
 .text-success {
   color: var(--state-online) !important;
 }
+
+/* Main Navigation Tabs */
+.main-nav-bar {
+  display: flex;
+  justify-content: center;
+  padding: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.nav-tab {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-muted);
+  padding: 0.75rem 2rem;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: var(--transition);
+  margin: 0 0.5rem;
+}
+
+.nav-tab i {
+  width: 20px;
+  height: 20px;
+}
+
+.nav-tab:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.nav-tab.active {
+  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+  color: #fff;
+  box-shadow: 0 4px 15px var(--color-primary-glow);
+}
+
+/* Traffic Tab Buttons */
+.traffic-tab-buttons {
+  display: flex;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 0.25rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.traffic-tab-btn {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-muted);
+  padding: 0.65rem 1.25rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: var(--transition);
+}
+
+.traffic-tab-btn i {
+  width: 16px;
+  height: 16px;
+}
+
+.traffic-tab-btn:hover {
+  color: var(--text-main);
+}
+
+.traffic-tab-btn.active {
+  background: linear-gradient(135deg, var(--color-secondary), #2563eb);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+}
+
+/* Custom Dates Styling */
+.custom-dates-box {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--glass-border);
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-md);
+}
+
+.date-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  cursor: pointer;
+  color-scheme: dark;
+}
+
+.date-sep {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+/* Traffic Table Container & Table CSS */
+.table-container-glass {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  overflow-x: auto;
+  margin-top: 1rem;
+  width: 100%;
+}
+
+.traffic-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.traffic-table th {
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.traffic-table td {
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.02);
+  font-size: 0.9rem;
+  color: var(--text-main);
+  vertical-align: middle;
+}
+
+.traffic-table tr:last-child td {
+  border-bottom: none;
+}
+
+.traffic-table tr:hover td {
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.traffic-table .font-mono {
+  font-family: monospace;
+}
+
+/* Large Modal variant for charts */
+.modal-large {
+  max-width: 800px;
+}
+

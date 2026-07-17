@@ -609,10 +609,13 @@ const express_device_cache = {
 };
 
 // Isi cache awal dari Database jika tidak dalam mode debug
+// Isi cache awal dari Database jika tidak dalam mode debug
 const DB_DEBUG_MODE = (process.env.DEBUG || "false").toLowerCase() === "true";
+let dbPool = null;
+
 if (!DB_DEBUG_MODE) {
   const pg = require('pg');
-  const pool = new pg.Pool({
+  dbPool = new pg.Pool({
     host: process.env.DB_HOST || "127.0.0.1",
     port: parseInt(process.env.DB_PORT || "5432"),
     database: process.env.DB_NAME,
@@ -620,7 +623,7 @@ if (!DB_DEBUG_MODE) {
     password: process.env.DB_PASSWORD
   });
 
-  pool.query("SELECT * FROM ruijie_devices", (err, res) => {
+  dbPool.query("SELECT * FROM ruijie_devices", (err, res) => {
     if (err) {
       console.warn("[WARN] Gagal memuat cache awal dari Database:", err.message);
     } else if (res.rows) {
@@ -666,7 +669,6 @@ if (!DB_DEBUG_MODE) {
       });
       console.log(`[INFO] Cache awal terisi dari database: ${express_device_cache.l2tp.length} L2TP, ${express_device_cache.pppoe.length} PPPoE`);
     }
-    pool.end();
   });
 }
 
@@ -726,6 +728,363 @@ app.all('/api/scrape', async (req, res) => {
   } catch (err) {
     console.error(`[ERROR] Gagal melakukan manual scrape:`, err.message);
     return res.status(500).json({ error: `Internal server error: ${err.message}` });
+  }
+});
+
+/**
+ * Endpoint GET /api/sites
+ * Query: ?type=l2tp|pppoe
+ */
+app.get('/api/sites', async (req, res) => {
+  const connType = (req.query.type || 'l2tp').toLowerCase();
+  
+  if (DB_DEBUG_MODE || !dbPool) {
+    const cached = express_device_cache[connType] || [];
+    const uniqueGroups = [];
+    const seen = new Set();
+    cached.forEach(d => {
+      if (d.group_id && !seen.has(d.group_id)) {
+        seen.add(d.group_id);
+        uniqueGroups.push({ group_id: d.group_id, group_name: d.group_name || d.alias });
+      }
+    });
+    return res.status(200).json({ sites: uniqueGroups });
+  }
+
+  try {
+    const result = await dbPool.query(
+      "SELECT DISTINCT group_id, group_name FROM ruijie_devices WHERE connection_type = $1 AND group_id IS NOT NULL ORDER BY group_name ASC",
+      [connType.toUpperCase()]
+    );
+    return res.status(200).json({ sites: result.rows });
+  } catch (err) {
+    console.error("[ERROR] Gagal mengambil daftar site:", err.message);
+    return res.status(500).json({ error: `Gagal mengambil daftar site: ${err.message}` });
+  }
+});
+
+/**
+ * Endpoint POST /api/traffic
+ * Body: { "groupId": "...", "rangeType": "today"|"7days"|"30days"|"custom", "startDate": "YYYYMMDD", "endDate": "YYYYMMDD", "type": "l2tp"|"pppoe" }
+ */
+app.post('/api/traffic', async (req, res) => {
+  const { groupId, rangeType, startDate, endDate, type, deviceSn } = req.body;
+  const connType = (type || 'l2tp').toLowerCase();
+  const cfg = CONFIG[connType];
+
+  if (!cfg) {
+    return res.status(400).json({ error: `Tipe koneksi '${type}' tidak valid.` });
+  }
+
+  let startStr = startDate;
+  let endStr = endDate;
+  
+  const getGMT7Date = (offsetDays = 0) => {
+    const d = new Date();
+    const utc = d.getTime() + d.getTimezoneOffset() * 60000;
+    const gmt7 = new Date(utc + 3600000 * 7);
+    gmt7.setDate(gmt7.getDate() - offsetDays);
+    const yyyy = gmt7.getFullYear();
+    const mm = String(gmt7.getMonth() + 1).padStart(2, '0');
+    const dd = String(gmt7.getDate()).padStart(2, '0');
+    return `${yyyy}${mm}${dd}`;
+  };
+
+  const getGMT7DateYesterday = () => {
+    return getGMT7Date(1);
+  };
+
+  if (rangeType === 'today') {
+    startStr = getGMT7Date();
+    endStr = getGMT7Date();
+  } else if (rangeType === '7days') {
+    startStr = getGMT7Date(7);
+    endStr = getGMT7Date();
+  } else if (rangeType === '30days') {
+    startStr = getGMT7Date(30);
+    endStr = getGMT7Date();
+  }
+
+  if (!startStr || !endStr) {
+    return res.status(400).json({ error: "startDate dan endDate wajib diisi jika rangeType custom." });
+  }
+
+  const executeTrafficFetch = async (retryOnExpiry = true) => {
+    let cookieStr = getCookieString(cfg.cookieFile);
+
+    if (!cookieStr) {
+      console.log(`[INFO] Sesi/cookie tidak ditemukan untuk tipe ${connType}. Memicu login otomatis...`);
+      try {
+        await runLoginScript(cfg.loginCommand);
+        cookieStr = getCookieString(cfg.cookieFile);
+      } catch (err) {
+        throw new Error(`Gagal login otomatis: ${err.message}`);
+      }
+      if (!cookieStr) {
+        throw new Error("Gagal memuat cookie setelah login.");
+      }
+    }
+
+    // Build map of groupId -> groupName from DB
+    const groupNameMap = {};
+    if (!DB_DEBUG_MODE && dbPool) {
+      try {
+        const dbRes = await dbPool.query(
+          "SELECT DISTINCT group_id, group_name FROM ruijie_devices WHERE connection_type = $1 AND group_id IS NOT NULL",
+          [connType.toUpperCase()]
+        );
+        dbRes.rows.forEach(r => {
+          if (r.group_id) groupNameMap[String(r.group_id)] = r.group_name;
+        });
+      } catch (e) {
+        console.warn("[WARN] Gagal memuat groupNameMap dari DB:", e.message);
+      }
+    } else {
+      const cached = express_device_cache[connType] || [];
+      cached.forEach(d => {
+        if (d.group_id) groupNameMap[String(d.group_id)] = d.group_name || d.alias;
+      });
+    }
+
+    // CASE 1: Querying a specific group (site detail chart)
+    if (groupId) {
+      const exportPayload = querystring.stringify({
+        order: 'asc',
+        page: '1',
+        orderBy: 'flow',
+        limit: '100',
+        type: 'TOP_APS',
+        groupId: groupId,
+        charType: rangeType === 'today' ? 'hour' : 'day',
+        start: startStr,
+        end: endStr,
+        macc_groupTimezoneStr: "GMT+7:00",
+        currentUsername: cfg.username,
+        offset: '0'
+      });
+
+      const exportRes = await makeRuijiePost('/admin3/exportBuildingFlowBySn', cookieStr, exportPayload);
+      if (exportRes.body.trim().startsWith('<') || exportRes.body === 'refresh') {
+        if (retryOnExpiry) {
+          console.log("[WARN] Sesi expired. Login ulang...");
+          await runLoginScript(cfg.loginCommand);
+          return await executeTrafficFetch(false);
+        } else {
+          throw new Error("Sesi expired.");
+        }
+      }
+
+      let exportData;
+      try {
+        exportData = JSON.parse(exportRes.body);
+      } catch (e) {
+        throw new Error("Gagal parse JSON export.");
+      }
+
+      let totalTrafficBytes = 0;
+      let totalClients = 0;
+      let targetDevice = null;
+      const deviceFlowList = exportData.snDataList || [];
+
+      if (deviceSn) {
+        targetDevice = deviceFlowList.find(d => String(d.sn).trim() === String(deviceSn).trim());
+      }
+
+      if (targetDevice) {
+        totalTrafficBytes = parseInt(targetDevice.wifiUpDown) || 0;
+        totalClients = parseInt(targetDevice.total) || 0;
+      } else {
+        deviceFlowList.forEach(d => {
+          totalTrafficBytes += parseInt(d.wifiUpDown) || 0;
+          totalClients += parseInt(d.total) || 0;
+        });
+      }
+
+      const trendPayload = querystring.stringify({
+        buildingId: groupId,
+        businessType: 'MARKET',
+        queryType: rangeType === 'today' ? 'today' : 'period',
+        startDateStr: startStr,
+        endDateStr: endStr,
+        macc_groupTimezoneStr: "GMT+7:00",
+        currentUsername: cfg.username
+      });
+
+      const trendRes = await makeRuijiePost('/admin3/flowTrend', cookieStr, trendPayload);
+      
+      let inTrafficBytes = 0;
+      let outTrafficBytes = 0;
+      let trendPoints = [];
+      let rxRatio = 0.15;
+      let txRatio = 0.85;
+
+      if (!trendRes.body.trim().startsWith('<') && trendRes.body !== 'refresh') {
+        try {
+          const trendData = JSON.parse(trendRes.body);
+          if (trendData.code === 0 && trendData.list && trendData.list.length > 0) {
+            let sumRx = 0;
+            let sumTx = 0;
+            trendData.list.forEach(p => {
+              sumRx += parseInt(p.rxBytes) || 0;
+              sumTx += parseInt(p.txBytes) || 0;
+              trendPoints.push({
+                time: p.timeStamp_macc_groupTimezone || p.timeString,
+                in: parseInt(p.rxBytes) || 0,
+                out: parseInt(p.txBytes) || 0,
+                total: (parseInt(p.rxBytes) || 0) + (parseInt(p.txBytes) || 0)
+              });
+            });
+            const sumTotal = sumRx + sumTx;
+            if (sumTotal > 0) {
+              rxRatio = sumRx / sumTotal;
+              txRatio = sumTx / sumTotal;
+            }
+          }
+        } catch(e) {
+          // ignore
+        }
+      }
+
+      inTrafficBytes = Math.round(totalTrafficBytes * rxRatio);
+      outTrafficBytes = totalTrafficBytes - inTrafficBytes;
+
+      let siteName = groupNameMap[groupId] || `Site ${groupId}`;
+      if (targetDevice && targetDevice.alias) {
+        siteName = `${siteName} - ${targetDevice.alias}`;
+      } else if (deviceFlowList.length > 0 && !groupNameMap[groupId]) {
+        siteName = deviceFlowList[0].alias;
+      }
+      
+      return {
+        sitesTraffic: [{
+          groupId: groupId,
+          siteName: siteName,
+          totalTrafficBytes,
+          inTrafficBytes,
+          outTrafficBytes,
+          clients: totalClients,
+          trendPoints: trendPoints
+        }]
+      };
+    }
+
+    // CASE 2: Querying all sites (Dashboard View)
+    // Query the parent group to fetch all APs under this connection type in a single call
+    const parentGroupId = cfg.groupId;
+    const exportPayload = querystring.stringify({
+      order: 'asc',
+      page: '1',
+      orderBy: 'flow',
+      limit: '1000', // large limit to grab all APs at once
+      type: 'TOP_APS',
+      groupId: parentGroupId,
+      charType: rangeType === 'today' ? 'hour' : 'day',
+      start: startStr,
+      end: endStr,
+      macc_groupTimezoneStr: "GMT+7:00",
+      currentUsername: cfg.username,
+      offset: '0'
+    });
+
+    const exportRes = await makeRuijiePost('/admin3/exportBuildingFlowBySn', cookieStr, exportPayload);
+    if (exportRes.body.trim().startsWith('<') || exportRes.body === 'refresh') {
+      if (retryOnExpiry) {
+        console.log("[WARN] Sesi expired. Login ulang...");
+        await runLoginScript(cfg.loginCommand);
+        return await executeTrafficFetch(false);
+      } else {
+        throw new Error("Sesi expired.");
+      }
+    }
+
+    let exportData;
+    try {
+      exportData = JSON.parse(exportRes.body);
+    } catch (e) {
+      throw new Error("Gagal parse JSON export.");
+    }
+
+    if (exportData.code !== 0) {
+      throw new Error(exportData.msg || "Ruijie returned error code");
+    }
+
+    // Fetch parent-level today's flowTrend to get overall RX/TX ratio
+    const trendPayload = querystring.stringify({
+      buildingId: parentGroupId,
+      businessType: 'MARKET',
+      queryType: 'today',
+      startDateStr: getGMT7DateYesterday(),
+      endDateStr: getGMT7Date(),
+      macc_groupTimezoneStr: "GMT+7:00",
+      currentUsername: cfg.username
+    });
+
+    const trendRes = await makeRuijiePost('/admin3/flowTrend', cookieStr, trendPayload);
+    let rxRatio = 0.15;
+    let txRatio = 0.85;
+
+    if (!trendRes.body.trim().startsWith('<') && trendRes.body !== 'refresh') {
+      try {
+        const trendData = JSON.parse(trendRes.body);
+        if (trendData.code === 0 && trendData.list && trendData.list.length > 0) {
+          let sumRx = 0;
+          let sumTx = 0;
+          trendData.list.forEach(p => {
+            sumRx += parseInt(p.rxBytes) || 0;
+            sumTx += parseInt(p.txBytes) || 0;
+          });
+          const sumTotal = sumRx + sumTx;
+          if (sumTotal > 0) {
+            rxRatio = sumRx / sumTotal;
+            txRatio = sumTx / sumTotal;
+          }
+        }
+      } catch(e) {
+        // ignore
+      }
+    }
+
+    // Aggregate AP traffic by buildingId (subgroup/site ID)
+    const siteAggregation = {};
+    const apList = exportData.snDataList || [];
+    apList.forEach(ap => {
+      const bId = String(ap.buildingId || ap.groupId);
+      if (!bId || bId === 'undefined' || bId === 'null') return;
+
+      if (!siteAggregation[bId]) {
+        siteAggregation[bId] = {
+          groupId: bId,
+          siteName: groupNameMap[bId] || ap.alias || `Site ${bId}`,
+          totalTrafficBytes: 0,
+          clients: 0
+        };
+      }
+      siteAggregation[bId].totalTrafficBytes += parseInt(ap.wifiUpDown) || 0;
+      siteAggregation[bId].clients += parseInt(ap.total) || 0;
+    });
+
+    const sitesTraffic = Object.values(siteAggregation).map(site => {
+      const inTrafficBytes = Math.round(site.totalTrafficBytes * rxRatio);
+      const outTrafficBytes = site.totalTrafficBytes - inTrafficBytes;
+      return {
+        ...site,
+        inTrafficBytes,
+        outTrafficBytes,
+        trendPoints: []
+      };
+    });
+
+    return { sitesTraffic };
+  };
+
+  console.log(`[INFO] Request traffic data - Range: ${rangeType} | Dates: ${startStr} - ${endStr} | Tipe: ${connType.toUpperCase()}`);
+  
+  try {
+    const result = await executeTrafficFetch();
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("[ERROR] Traffic fetch error:", err.message);
+    return res.status(500).json({ error: err.message });
   }
 });
 

@@ -9,6 +9,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <!-- Lucide Icons for premium modern look -->
   <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Chart.js for premium traffic charts -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -33,95 +35,96 @@
     </header>
 
     <main class="app-content">
-      <!-- Controller Header Card -->
-      <section class="control-panel glass">
-        <div class="control-left">
-          <div class="tab-buttons">
-            <button class="tab-btn active" data-type="l2tp">
-              <i data-lucide="network"></i> L2TP Devices
+
+        <!-- Controller Header Card -->
+        <section class="control-panel glass">
+          <div class="control-left">
+            <div class="tab-buttons">
+              <button class="tab-btn active" data-type="l2tp">
+                <i data-lucide="network"></i> L2TP Devices
+              </button>
+              <button class="tab-btn" data-type="pppoe">
+                <i data-lucide="cable"></i> PPPoE Devices
+              </button>
+            </div>
+          </div>
+
+          <div class="control-right">
+            <div class="sort-box">
+              <select id="sort-select" class="sort-select">
+                <option value="name-asc">Sort: A-Z (Nama)</option>
+                <option value="name-desc">Sort: Z-A (Nama)</option>
+                <option value="status-on">Sort: Status Online</option>
+                <option value="status-off">Sort: Status Offline</option>
+                <option value="clients-desc">Sort: Klien Terbanyak</option>
+              </select>
+            </div>
+            <div class="search-box">
+              <i data-lucide="search" class="search-icon"></i>
+              <input type="text" id="search-input" placeholder="Cari SN, Alias, IP...">
+            </div>
+            <button id="sync-btn" class="btn btn-primary btn-glow">
+              <i data-lucide="refresh-cw"></i> <span>Tarik Data</span>
             </button>
-            <button class="tab-btn" data-type="pppoe">
-              <i data-lucide="cable"></i> PPPoE Devices
-            </button>
           </div>
-        </div>
+        </section>
 
-        <div class="control-right">
-          <div class="sort-box">
-            <select id="sort-select" class="sort-select">
-              <option value="name-asc">Sort: A-Z (Nama)</option>
-              <option value="name-desc">Sort: Z-A (Nama)</option>
-              <option value="status-on">Sort: Status Online</option>
-              <option value="status-off">Sort: Status Offline</option>
-              <option value="clients-desc">Sort: Klien Terbanyak</option>
-            </select>
+        <!-- Stats Overview -->
+        <section class="stats-grid">
+          <div class="stat-card glass">
+            <div class="stat-icon icon-blue">
+              <i data-lucide="layers"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Total Perangkat</span>
+              <span id="stat-total" class="stat-value">-</span>
+            </div>
           </div>
-          <div class="search-box">
-            <i data-lucide="search" class="search-icon"></i>
-            <input type="text" id="search-input" placeholder="Cari SN, Alias, IP...">
+          <div class="stat-card glass">
+            <div class="stat-icon icon-green">
+              <i data-lucide="check-circle-2"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Perangkat Online</span>
+              <span id="stat-online" class="stat-value">-</span>
+            </div>
           </div>
-          <button id="sync-btn" class="btn btn-primary btn-glow">
-            <i data-lucide="refresh-cw"></i> <span>Tarik Data</span>
-          </button>
-        </div>
-      </section>
+          <div class="stat-card glass">
+            <div class="stat-icon icon-red">
+              <i data-lucide="alert-triangle"></i>
+            </div>
+            <div class="stat-info">
+              <span class="stat-label">Perangkat Offline</span>
+              <span id="stat-offline" class="stat-value">-</span>
+            </div>
+          </div>
+        </section>
 
-      <!-- Stats Overview -->
-      <section class="stats-grid">
-        <div class="stat-card glass">
-          <div class="stat-icon icon-blue">
-            <i data-lucide="layers"></i>
+        <!-- Device List Section -->
+        <section class="device-section">
+          <div class="section-title">
+            <h2>Daftar Perangkat</h2>
+            <span class="badge" id="device-count">0 devices</span>
           </div>
-          <div class="stat-info">
-            <span class="stat-label">Total Perangkat</span>
-            <span id="stat-total" class="stat-value">-</span>
-          </div>
-        </div>
-        <div class="stat-card glass">
-          <div class="stat-icon icon-green">
-            <i data-lucide="check-circle-2"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-label">Perangkat Online</span>
-            <span id="stat-online" class="stat-value">-</span>
-          </div>
-        </div>
-        <div class="stat-card glass">
-          <div class="stat-icon icon-red">
-            <i data-lucide="alert-triangle"></i>
-          </div>
-          <div class="stat-info">
-            <span class="stat-label">Perangkat Offline</span>
-            <span id="stat-offline" class="stat-value">-</span>
-          </div>
-        </div>
-      </section>
 
-      <!-- Device List Section -->
-      <section class="device-section">
-        <div class="section-title">
-          <h2>Daftar Perangkat</h2>
-          <span class="badge" id="device-count">0 devices</span>
-        </div>
+          <!-- Loading State -->
+          <div id="loading-spinner" class="loading-state hidden">
+            <div class="spinner"></div>
+            <p>Menarik data terbaru dari Ruijie Cloud...</p>
+          </div>
 
-        <!-- Loading State -->
-        <div id="loading-spinner" class="loading-state hidden">
-          <div class="spinner"></div>
-          <p>Menarik data terbaru dari Ruijie Cloud...</p>
-        </div>
+          <!-- Empty State -->
+          <div id="empty-state" class="empty-state hidden">
+            <i data-lucide="inbox"></i>
+            <p>Tidak ada perangkat ditemukan.</p>
+          </div>
 
-        <!-- Empty State -->
-        <div id="empty-state" class="empty-state hidden">
-          <i data-lucide="inbox"></i>
-          <p>Tidak ada perangkat ditemukan.</p>
-        </div>
-
-        <!-- Device Grid -->
-        <div id="device-grid" class="device-grid">
-          <!-- Dynamically populated via app.js -->
-        </div>
-      </section>
-    </main>
+          <!-- Device Grid -->
+          <div id="device-grid" class="device-grid">
+            <!-- Dynamically populated via app.js -->
+          </div>
+        </section>
+      </main>
   </div>
 
   <!-- Toast Notification System -->
@@ -220,7 +223,52 @@
     </div>
   </div>
 
-
+  <!-- Site Traffic Detail Modal -->
+  <div id="traffic-detail-modal" class="modal-overlay hidden">
+    <div class="modal-content glass modal-large">
+      <div class="modal-header">
+        <div class="modal-title-icon icon-blue">
+          <i data-lucide="activity"></i>
+        </div>
+        <h3 id="traffic-modal-title">Trend Traffic Site</h3>
+      </div>
+      <div class="modal-body">
+        <div class="modal-device-detail" style="display: flex; flex-direction: row; justify-content: space-between; flex-wrap: wrap; gap: 1rem; align-items: center;">
+          <div>
+            <div class="detail-row"><span>Nama Site:</span><strong id="traffic-modal-sitename">-</strong></div>
+            <div class="detail-row"><span>Group ID:</span><strong id="traffic-modal-groupid">-</strong></div>
+            <div class="detail-row"><span>Klien:</span><strong id="traffic-modal-clients">-</strong></div>
+            <div class="detail-row"><span>Traffic:</span><strong id="traffic-modal-total-bytes">-</strong></div>
+          </div>
+          <!-- Modal Date Range Selectors -->
+          <div class="modal-controls" style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+            <select id="modal-traffic-range" class="sort-select" style="padding: 0.5rem 2rem 0.5rem 1rem;">
+              <option value="today">Last 24 Hours</option>
+              <option value="7days">Last 7 Days</option>
+              <option value="30days">Last 30 Days</option>
+              <option value="custom">Custom Range</option>
+            </select>
+            <div id="modal-custom-dates" class="custom-dates-box hidden" style="padding: 0.25rem 0.5rem; background: rgba(0,0,0,0.2);">
+              <input type="date" id="modal-start-date" class="date-input">
+              <span class="date-sep">to</span>
+              <input type="date" id="modal-end-date" class="date-input">
+            </div>
+            <button id="modal-refresh-btn" class="btn btn-secondary" style="padding: 0.5rem;">
+              <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
+            </button>
+          </div>
+        </div>
+        
+        <!-- Live Traffic Flow Chart Container -->
+        <div class="chart-container" style="position: relative; height: 350px; width: 100%; margin-top: 1rem;">
+          <canvas id="traffic-modal-chart"></canvas>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="traffic-modal-close-btn" class="btn btn-secondary">Tutup</button>
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

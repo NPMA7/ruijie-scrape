@@ -4,6 +4,14 @@ let allDevices = [];
 let filteredDevices = [];
 let deviceToReboot = null;
 
+// Traffic Monitor App State
+let currentTrafficType = 'l2tp';
+let currentTrafficRange = 'today';
+let trafficChartInstance = null;
+let trafficChartAbortController = null;
+let sitesTrafficData = [];
+let modalActiveDeviceSn = null;
+
 // DOM Elements
 const tabButtons = document.querySelectorAll('.tab-btn');
 const searchInput = document.getElementById('search-input');
@@ -51,6 +59,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initializeTabs();
   initializeSearch();
   initializeButtons();
+  
+  // Traffic Monitor Initializers
+  initializeTrafficModalControls();
   
   // Initialize Lucide Icons
   if (typeof lucide !== 'undefined') {
@@ -245,7 +256,10 @@ function renderDevices() {
           </div>
         </div>
         
-        <div class="card-footer" style="gap: 0.5rem;">
+        <div class="card-footer" style="gap: 0.5rem; flex-wrap: wrap;">
+          <button class="btn btn-secondary btn-card-action traffic-trigger" data-group-id="${dev.group_id || ''}" data-group-name="${dev.group_name || dev.alias || ''}" data-clients="${dev.clients || 0}" data-sn="${dev.sn || ''}">
+            <i data-lucide="activity"></i> Traffic
+          </button>
           <button class="btn btn-secondary btn-card-action eweb-trigger" data-sn="${dev.sn}" data-alias="${dev.alias}">
             <i data-lucide="globe"></i> eWeb
           </button>
@@ -266,6 +280,24 @@ function renderDevices() {
   if (typeof lucide !== 'undefined') {
     lucide.createIcons();
   }
+
+  // Register click traffic buttons
+  document.querySelectorAll('.traffic-trigger').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const groupId = btn.dataset.groupId;
+      const groupName = btn.dataset.groupName;
+      const clients = btn.dataset.clients;
+      const sn = btn.dataset.sn;
+      
+      if (!groupId) {
+        showToast("Group ID untuk perangkat ini tidak ditemukan.", "error");
+        return;
+      }
+      
+      // Open traffic detail modal for this group/site
+      openTrafficTrendModal(groupId, groupName, clients, sn);
+    });
+  });
   
   // Register click reboot buttons
   document.querySelectorAll('.reboot-trigger').forEach(btn => {
@@ -566,4 +598,296 @@ function showToast(message, type = 'info') {
       toast.remove();
     });
   }, 4500);
+}
+
+// ==========================================
+// Traffic Monitor Modal Section
+// ==========================================
+
+let modalActiveGroupId = null;
+let modalActiveSiteName = '';
+let modalActiveClients = 0;
+let modalActiveConnType = 'l2tp';
+
+// Initialize Modal Date Selectors, Range Dropdown, and Refresh controls
+function initializeTrafficModalControls() {
+  const modalTrafficRange = document.getElementById('modal-traffic-range');
+  const modalCustomDates = document.getElementById('modal-custom-dates');
+  const modalStartDate = document.getElementById('modal-start-date');
+  const modalEndDate = document.getElementById('modal-end-date');
+  const modalRefreshBtn = document.getElementById('modal-refresh-btn');
+  const trafficModalCloseBtn = document.getElementById('traffic-modal-close-btn');
+  const trafficDetailModal = document.getElementById('traffic-detail-modal');
+
+  if (modalTrafficRange) {
+    modalTrafficRange.addEventListener('change', () => {
+      const range = modalTrafficRange.value;
+      if (range === 'custom') {
+        modalCustomDates.classList.remove('hidden');
+        
+        // Pre-fill dates: start 7 days ago, end today
+        const today = new Date();
+        const start = new Date();
+        start.setDate(start.getDate() - 7);
+        
+        const toYYYYMMDD = (d) => {
+          const yyyy = d.getFullYear();
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          return `${yyyy}-${mm}-${dd}`;
+        };
+        
+        modalStartDate.value = toYYYYMMDD(start);
+        modalEndDate.value = toYYYYMMDD(today);
+        
+        loadModalTrafficChart();
+      } else {
+        modalCustomDates.classList.add('hidden');
+        loadModalTrafficChart();
+      }
+    });
+  }
+
+  if (modalStartDate) {
+    ['change', 'input'].forEach(evt => {
+      modalStartDate.addEventListener(evt, () => {
+        loadModalTrafficChart();
+      });
+    });
+  }
+
+  if (modalEndDate) {
+    ['change', 'input'].forEach(evt => {
+      modalEndDate.addEventListener(evt, () => {
+        loadModalTrafficChart();
+      });
+    });
+  }
+
+  if (modalRefreshBtn) {
+    modalRefreshBtn.addEventListener('click', () => {
+      loadModalTrafficChart();
+    });
+  }
+
+  if (trafficModalCloseBtn) {
+    trafficModalCloseBtn.addEventListener('click', () => {
+      trafficDetailModal.classList.add('hidden');
+      if (trafficChartInstance) {
+        trafficChartInstance.destroy();
+        trafficChartInstance = null;
+      }
+    });
+  }
+}
+
+// Open and show site traffic detail modal
+async function openTrafficTrendModal(groupId, siteName, clients, sn = '') {
+  const trafficDetailModal = document.getElementById('traffic-detail-modal');
+  const modalSiteName = document.getElementById('traffic-modal-sitename');
+  const modalGroupId = document.getElementById('traffic-modal-groupid');
+  const modalClients = document.getElementById('traffic-modal-clients');
+  const modalTotalBytes = document.getElementById('traffic-modal-total-bytes');
+  const modalTrafficRange = document.getElementById('modal-traffic-range');
+  const modalCustomDates = document.getElementById('modal-custom-dates');
+
+  // Save active parameters
+  modalActiveGroupId = groupId;
+  modalActiveSiteName = siteName;
+  modalActiveClients = clients;
+  modalActiveDeviceSn = sn;
+  modalActiveConnType = currentType; // L2TP or PPPoE
+
+  if (modalSiteName) modalSiteName.textContent = siteName;
+  if (modalGroupId) modalGroupId.textContent = groupId;
+  if (modalClients) modalClients.textContent = `${clients || 0} user`;
+  if (modalTotalBytes) modalTotalBytes.textContent = '-';
+
+  // Reset range and dates UI
+  if (modalTrafficRange) modalTrafficRange.value = 'today';
+  if (modalCustomDates) modalCustomDates.classList.add('hidden');
+
+  trafficDetailModal.classList.remove('hidden');
+
+  // Load the chart
+  loadModalTrafficChart();
+}
+
+// Fetch trend data and render/update the line chart
+async function loadModalTrafficChart() {
+  const modalTrafficRange = document.getElementById('modal-traffic-range').value;
+  
+  let payload = {
+    groupId: modalActiveGroupId,
+    rangeType: modalTrafficRange,
+    type: modalActiveConnType,
+    deviceSn: modalActiveDeviceSn
+  };
+
+  if (modalTrafficRange === 'custom') {
+    const startDateVal = document.getElementById('modal-start-date').value;
+    const endDateVal = document.getElementById('modal-end-date').value;
+    if (!startDateVal || !endDateVal) {
+      return;
+    }
+    payload.startDate = startDateVal.replace(/-/g, '');
+    payload.endDate = endDateVal.replace(/-/g, '');
+  }
+
+  // Abort any ongoing request
+  if (trafficChartAbortController) {
+    trafficChartAbortController.abort();
+  }
+  trafficChartAbortController = new AbortController();
+  const signal = trafficChartAbortController.signal;
+
+  try {
+    const res = await fetch('/api/traffic', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: signal
+    });
+
+    if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
+
+    const data = await res.json();
+    const siteData = data.sitesTraffic && data.sitesTraffic[0];
+
+    if (siteData) {
+      const modalClients = document.getElementById('traffic-modal-clients');
+      if (modalClients) {
+        modalClients.textContent = `${siteData.clients || 0} user`;
+      }
+      const modalTotalBytes = document.getElementById('traffic-modal-total-bytes');
+      if (modalTotalBytes) {
+        modalTotalBytes.textContent = formatBytes(siteData.totalTrafficBytes || 0);
+      }
+    }
+
+    if (!siteData || !siteData.trendPoints || siteData.trendPoints.length === 0) {
+      console.warn("Data trend untuk site ini tidak ditemukan atau kosong.");
+      
+      // Clear chart if empty
+      if (trafficChartInstance) {
+        trafficChartInstance.destroy();
+        trafficChartInstance = null;
+      }
+      return;
+    }
+
+    const trend = siteData.trendPoints;
+    
+    // Sort trend chronologically
+    trend.sort((a, b) => {
+      const getCompareTime = (tStr) => {
+        const clean = String(tStr).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
+        return new Date(clean).getTime() || 0;
+      };
+      return getCompareTime(a.time) - getCompareTime(b.time);
+    });
+
+    const labels = trend.map(t => {
+      const formattedTime = String(t.time).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
+      const date = new Date(formattedTime);
+      if (!isNaN(date.getTime())) {
+        if (modalTrafficRange === 'today') {
+          return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      }
+      return t.time;
+    });
+
+    const datasetIn = trend.map(t => t.in / (1024 * 1024)); // Convert to MB
+    const datasetOut = trend.map(t => t.out / (1024 * 1024)); // Convert to MB
+
+    const ctx = document.getElementById('traffic-modal-chart').getContext('2d');
+    
+    if (trafficChartInstance) {
+      trafficChartInstance.destroy();
+    }
+
+    trafficChartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Uplink',
+            data: datasetIn,
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.1)',
+            fill: true,
+            tension: 0.4
+          },
+          {
+            label: 'Downlink',
+            data: datasetOut,
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            fill: true,
+            tension: 0.4
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: { color: '#f3f4f6' }
+          },
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                let label = context.dataset.label || '';
+                if (label) label += ': ';
+                if (context.parsed.y !== null) {
+                  label += formatBytes(context.parsed.y * 1024 * 1024);
+                }
+                return label;
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: { color: '#9ca3af' }
+          },
+          y: {
+            min: 0,
+            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+            ticks: { 
+              color: '#9ca3af',
+              callback: function(value) {
+                return formatBytes(value * 1024 * 1024);
+              }
+            }
+          }
+        }
+      }
+    });
+
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return;
+    }
+    console.error("Gagal menggambar chart:", err);
+    showToast(`Gagal mengambil data trend: ${err.message}`, 'error');
+  }
+}
+
+// Utility to format bytes into human readable sizes
+function formatBytes(bytes) {
+  if (bytes === 0 || isNaN(bytes)) return '0 B';
+  const isNegative = bytes < 0;
+  const absBytes = Math.abs(bytes);
+  const k = 1024;
+  const dm = 2;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(absBytes) / Math.log(k));
+  const formatted = parseFloat((absBytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  return isNegative ? `-${formatted}` : formatted;
 }

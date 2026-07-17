@@ -140,6 +140,66 @@ Kirimkan request HTTP POST ke endpoint `/api/rename` untuk mengubah nama alias s
     -d '{"sn": "G1U52G022315", "type": "l2tp", "newAlias": "AP-Kantor-Baru"}'
   ```
 
+#### E. Mendapatkan Daftar Site / Project Group
+Endpoint untuk mengambil daftar project group / site name yang unik dari database (atau dari in-memory cache jika database dinonaktifkan).
+- **Endpoint**: `GET http://localhost:5000/api/sites?type=l2tp`
+- **Query Parameter**:
+  - `type`: `"l2tp"` atau `"pppoe"`. Default `"l2tp"`.
+- **Contoh Respons Sukses**:
+  ```json
+  {
+    "sites": [
+      {
+        "group_id": "8289421",
+        "group_name": "Arjasari_Ancolmekar"
+      }
+    ]
+  }
+  ```
+
+#### F. Mengambil Data Trafik & Trend Chart Site/AP
+Endpoint untuk memuat data total trafik (Uplink/Downlink) serta daftar titik grafik historis (Trend) berdasarkan rentang waktu tertentu.
+- **Endpoint**: `POST http://localhost:5000/api/traffic`
+- **Payload JSON**:
+  ```json
+  {
+    "groupId": "8289421",
+    "rangeType": "today",
+    "type": "l2tp",
+    "deviceSn": "G1U52G9000587"
+  }
+  ```
+  - `groupId` (wajib): ID site / building group.
+  - `rangeType` (wajib): Pilihan `"today"` (Last 24 Hours), `"7days"`, `"30days"`, atau `"custom"`.
+  - `type` (opsional): `"l2tp"` atau `"pppoe"`. Default `"l2tp"`.
+  - `deviceSn` (opsional): Serial number AP spesifik. Jika dikirimkan, API akan memfilter data klien dan total bytes untuk AP tersebut saja (berguna untuk site multi-AP di PPPoE). Jika kosong, akan menghitung total agregat seluruh AP di site.
+  - `startDate` (wajib jika `rangeType` bernilai `"custom"`): String tanggal format `YYYYMMDD` (contoh `"20260701"`).
+  - `endDate` (wajib jika `rangeType` bernilai `"custom"`): String tanggal format `YYYYMMDD` (contoh `"20260716"`).
+
+- **Contoh Respons Sukses**:
+  ```json
+  {
+    "sitesTraffic": [
+      {
+        "groupId": "8289421",
+        "siteName": "Arjasari_Ancolmekar - Arjasari_ancolmekar",
+        "totalTrafficBytes": 347140719,
+        "inTrafficBytes": 52071108,
+        "outTrafficBytes": 295069611,
+        "clients": 5,
+        "trendPoints": [
+          {
+            "time": "2026-07-17 08:10:00",
+            "in": 52071108,
+            "out": 295069611,
+            "total": 347140719
+          }
+        ]
+      }
+    ]
+  }
+  ```
+
 ## Mekanisme Sinkronisasi Real-Time
 
 Untuk mempercepat pembaruan dashboard di aplikasi utama (`nocr-app`), script scraper ini dilengkapi dengan integrasi notifikasi HTTP lokal:
