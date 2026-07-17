@@ -247,11 +247,11 @@ function renderDevices() {
             <span class="info-value">${dev.clients || 0} user</span>
           </div>
           <div class="info-row">
-            <span class="info-label">Last Online</span>
+            <span class="info-label">${isOnline ? 'Offline Sejak' : 'Last Offline'}</span>
             <span class="info-value">${dev.last_online || '-'}</span>
           </div>
           <div class="info-row">
-            <span class="info-label">Log Terakhir</span>
+            <span class="info-label">${isOnline ? 'Online Sejak' : 'Log Terakhir'}</span>
             <span class="info-value history-text">${dev.last_log_history || '-'}</span>
           </div>
         </div>

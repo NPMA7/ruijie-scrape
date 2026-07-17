@@ -6,7 +6,13 @@ Node.js application for logging in, scraping L2TP and PPPoE monitor data from Ru
 
 - Node.js (v18+) & npm
 - PostgreSQL database
-- Google Chrome (installed on the system for headless browser automation)
+- Google Chrome / Chromium (terinstal pada sistem beserta Chromium-Driver untuk automasi headless browser).
+
+  **Untuk sistem Linux (Debian/Ubuntu):**
+  Pastikan Chromium dan Chromium-Driver terinstal beserta seluruh pustaka (libraries) pendukungnya dengan perintah berikut:
+  ```bash
+  sudo apt update && sudo apt install -y chromium chromium-driver
+  ```
 
 ## Instalasi
 
