@@ -44,6 +44,13 @@ async function loginAndGetCookies() {
   options.addArguments("--disable-dev-shm-usage");
   options.addArguments("--window-size=1920,1080");
 
+  // Gunakan user-data-dir spesifik agar tidak memenuhi /tmp dengan folder acak baru setiap kali run
+  const profilePath = path.join(__dirname, `../data/chrome_profiles/${connType}`);
+  if (!fs.existsSync(profilePath)) {
+    fs.mkdirSync(profilePath, { recursive: true });
+  }
+  options.addArguments(`--user-data-dir=${profilePath}`);
+
   // Lintas-platform check
   if (fs.existsSync("/usr/bin/chromium")) {
     options.setChromeBinaryPath("/usr/bin/chromium");
