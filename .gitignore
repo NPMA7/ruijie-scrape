@@ -20,3 +20,4 @@ data/cookies/*.json
 *.log
 
 scratch/
+data/chrome_profiles/
