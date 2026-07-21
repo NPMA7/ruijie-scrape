@@ -44,15 +44,10 @@ async function loginAndGetCookies() {
   options.addArguments("--disable-dev-shm-usage");
   options.addArguments("--window-size=1920,1080");
 
-  // Gunakan user-data-dir spesifik agar tidak memenuhi /tmp dengan folder acak baru setiap kali run
-  const profilePath = path.join(__dirname, `../data/chrome_profiles/${connType}`);
+  // Gunakan folder profil temporer unik per sesi agar login selalu bersih, dan dibersihkan di blok finally
+  const profilePath = path.join(__dirname, `../data/chrome_profiles/temp_${connType}_${Date.now()}`);
   if (!fs.existsSync(profilePath)) {
     fs.mkdirSync(profilePath, { recursive: true });
-  } else {
-    const lockFile = path.join(profilePath, "SingletonLock");
-    if (fs.existsSync(lockFile)) {
-      try { fs.unlinkSync(lockFile); } catch (e) {}
-    }
   }
   options.addArguments(`--user-data-dir=${profilePath}`);
 
@@ -163,7 +158,15 @@ async function loginAndGetCookies() {
     console.error("Terjadi error saat mencoba login otomatis:", err.message);
   } finally {
     if (driver) {
-      await driver.quit();
+      try {
+        await driver.quit();
+      } catch (e) {}
+    }
+    // Hapus folder temporary profile agar tidak memenuhi disk
+    if (profilePath && fs.existsSync(profilePath)) {
+      try {
+        fs.rmSync(profilePath, { recursive: true, force: true });
+      } catch (e) {}
     }
   }
 }
