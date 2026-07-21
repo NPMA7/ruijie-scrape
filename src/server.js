@@ -916,8 +916,8 @@ app.post('/api/traffic', async (req, res) => {
         buildingId: groupId,
         businessType: 'MARKET',
         queryType: rangeType === 'today' ? 'today' : 'period',
-        startDateStr: startStr,
-        endDateStr: endStr,
+        startDateStr: rangeType === 'today' ? getGMT7DateYesterday() : startStr,
+        endDateStr: rangeType === 'today' ? getGMT7Date() : endStr,
         macc_groupTimezoneStr: "GMT+7:00",
         currentUsername: cfg.username
       });

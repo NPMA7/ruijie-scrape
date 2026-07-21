@@ -48,6 +48,11 @@ async function loginAndGetCookies() {
   const profilePath = path.join(__dirname, `../data/chrome_profiles/${connType}`);
   if (!fs.existsSync(profilePath)) {
     fs.mkdirSync(profilePath, { recursive: true });
+  } else {
+    const lockFile = path.join(profilePath, "SingletonLock");
+    if (fs.existsSync(lockFile)) {
+      try { fs.unlinkSync(lockFile); } catch (e) {}
+    }
   }
   options.addArguments(`--user-data-dir=${profilePath}`);
 
@@ -80,20 +85,33 @@ async function loginAndGetCookies() {
     console.log("Menunggu halaman dimuat...");
     const usernameInput = await driver.wait(
       until.elementLocated(
-        By.xpath("//input[@type='text' or @name='username' or @id='username']"),
+        By.xpath("//input[(@name='username' or @id='username' or @id='loginName' or @placeholder) and not(@type='hidden')]")
       ),
-      15000,
+      15000
     );
-    await usernameInput.clear();
-    await usernameInput.sendKeys(cfg.email);
+    try {
+      await usernameInput.sendKeys(cfg.email);
+    } catch (e) {
+      await driver.executeScript(
+        "const el = document.querySelector('input[name=\"username\"], #username, input[type=\"text\"]'); if (el) { el.value = arguments[0]; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }",
+        cfg.email
+      );
+    }
 
-    const passwordInput = await driver.findElement(
-      By.xpath(
-        "//input[@type='password' or @name='password' or @id='password']",
+    const passwordInput = await driver.wait(
+      until.elementLocated(
+        By.xpath("//input[@type='password' and not(@type='hidden')]")
       ),
+      15000
     );
-    await passwordInput.clear();
-    await passwordInput.sendKeys(cfg.password);
+    try {
+      await passwordInput.sendKeys(cfg.password);
+    } catch (e) {
+      await driver.executeScript(
+        "const el = document.querySelector('input[type=\"password\"]'); if (el) { el.value = arguments[0]; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }",
+        cfg.password
+      );
+    }
 
     console.log("Mencoba login...");
     const loginBtn = await driver.findElement(By.id("J_userLogin_btn"));

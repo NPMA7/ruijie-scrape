@@ -830,14 +830,15 @@ async function loadModalTrafficChart() {
     // Sort trend chronologically
     trend.sort((a, b) => {
       const getCompareTime = (tStr) => {
-        const clean = String(tStr).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
+        if (!tStr) return 0;
+        const clean = String(tStr).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3').replace(' ', 'T');
         return new Date(clean).getTime() || 0;
       };
       return getCompareTime(a.time) - getCompareTime(b.time);
     });
 
     const labels = trend.map(t => {
-      const formattedTime = String(t.time).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3');
+      const formattedTime = String(t.time).replace(/^(\d{4})(\d{2})(\d{2})$/, '$1-$2-$3').replace(' ', 'T');
       const date = new Date(formattedTime);
       if (!isNaN(date.getTime())) {
         if (modalTrafficRange === 'today') {
